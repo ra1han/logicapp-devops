@@ -1,0 +1,389 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_name": {
+            "defaultValue": "",
+            "type": "String"
+        },
+        "event_id": {
+            "defaultValue": "",
+            "type": "String"
+        },
+        "facebook_page_id": {
+            "defaultValue": "",
+            "type": "String"
+        },
+        "facebook_page_access_token": {
+            "defaultValue": "",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_name')]",
+            "location": "australiaeast",
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$event_id": {
+                            "defaultValue": null,
+                            "type": "String"
+                        },
+                        "$facebook_page_id": {
+                            "defaultValue": null,
+                            "type": "String"
+                        },
+                        "$facebook_page_access_token": {
+                            "defaultValue": null,
+                            "type": "String"
+                        }
+					},
+                    "triggers": {
+                        "Recurrence": {
+                            "recurrence": {
+                                "frequency": "Month",
+                                "interval": 3
+                            },
+                            "type": "Recurrence"
+                        }
+                    },
+                    "actions": {
+                        "Declare_facebook_posts_array": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "facebook-posts",
+                                        "type": "Array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Declare_meetup_comments_array": {
+                            "runAfter": {
+                                "Populate_facebook_posts_array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "meetup-comments",
+                                        "type": "Array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Declare_new_comments_array": {
+                            "runAfter": {
+                                "Populate_meetup_comments_array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "new-comments",
+                                        "type": "Array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Populate_facebook_posts_array": {
+                            "actions": {
+                                "GET_facebook_posts": {
+                                    "runAfter": {},
+                                    "type": "Http",
+                                    "inputs": {
+                                        "method": "GET",
+                                        "uri": "@{concat('https://graph.facebook.com/', parameters('$facebook_page_id'), '/feed?access_token=', parameters('$facebook_page_access_token'))}"
+                                    }
+                                },
+                                "Iterate_posts": {
+                                    "foreach": "@body('Parse_posts_JSON_to_Object')?['data']",
+                                    "actions": {
+                                        "Append_post_to_array": {
+                                            "runAfter": {},
+                                            "type": "AppendToArrayVariable",
+                                            "inputs": {
+                                                "name": "facebook-posts",
+                                                "value": "@items('Iterate_posts')?['message']"
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Parse_posts_JSON_to_Object": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Foreach"
+                                },
+                                "Parse_posts_JSON_to_Object": {
+                                    "runAfter": {
+                                        "GET_facebook_posts": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@body('GET_facebook_posts')",
+                                        "schema": {
+                                            "properties": {
+                                                "data": {
+                                                    "items": {
+                                                        "properties": {
+                                                            "created_time": {
+                                                                "type": "string"
+                                                            },
+                                                            "id": {
+                                                                "type": "string"
+                                                            },
+                                                            "message": {
+                                                                "type": "string"
+                                                            },
+                                                            "story": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "created_time",
+                                                            "id"
+                                                        ],
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Declare_facebook_posts_array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Scope"
+                        },
+                        "Populate_meetup_comments_array": {
+                            "actions": {
+                                "GET_meetup_comments": {
+                                    "runAfter": {},
+                                    "type": "Http",
+                                    "inputs": {
+                                        "method": "GET",
+                                        "uri": "@parameters('$event_id')"
+                                    }
+                                },
+                                "Iterate_comments": {
+                                    "foreach": "@body('Parse_comment_JSON_to_Object')",
+                                    "actions": {
+                                        "Append_comment_to_array": {
+                                            "runAfter": {},
+                                            "type": "AppendToArrayVariable",
+                                            "inputs": {
+                                                "name": "meetup-comments",
+                                                "value": "@{items('Iterate_comments')?['member']?['name']} said - @{items('Iterate_comments')['comment']}"
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Parse_comment_JSON_to_Object": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Foreach"
+                                },
+                                "Parse_comment_JSON_to_Object": {
+                                    "runAfter": {
+                                        "GET_meetup_comments": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@body('GET_meetup_comments')",
+                                        "schema": {
+                                            "items": {
+                                                "properties": {
+                                                    "comment": {
+                                                        "type": "string"
+                                                    },
+                                                    "created": {
+                                                        "type": "integer"
+                                                    },
+                                                    "id": {
+                                                        "type": "integer"
+                                                    },
+                                                    "like_count": {
+                                                        "type": "integer"
+                                                    },
+                                                    "link": {
+                                                        "type": "string"
+                                                    },
+                                                    "member": {
+                                                        "properties": {
+                                                            "event_context": {
+                                                                "properties": {
+                                                                    "host": {
+                                                                        "type": "boolean"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "id": {
+                                                                "type": "integer"
+                                                            },
+                                                            "name": {
+                                                                "type": "string"
+                                                            },
+                                                            "photo": {
+                                                                "properties": {
+                                                                    "base_url": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "highres_link": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "id": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "photo_link": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "thumb_link": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "comment",
+                                                    "link",
+                                                    "created",
+                                                    "like_count",
+                                                    "member"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Declare_meetup_comments_array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Scope"
+                        },
+                        "Populate_new_comments_array": {
+                            "actions": {
+                                "Iterate_all_comments": {
+                                    "foreach": "@variables('meetup-comments')",
+                                    "actions": {
+                                        "Check_if_comment_already_posted": {
+                                            "actions": {
+                                                "Append_to_new_comments_array": {
+                                                    "runAfter": {},
+                                                    "type": "AppendToArrayVariable",
+                                                    "inputs": {
+                                                        "name": "new-comments",
+                                                        "value": "@items('Iterate_all_comments')"
+                                                    }
+                                                }
+                                            },
+                                            "runAfter": {},
+                                            "expression": {
+                                                "and": [
+                                                    {
+                                                        "not": {
+                                                            "contains": [
+                                                                "@variables('facebook-posts')",
+                                                                "@items('Iterate_all_comments')"
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            "type": "If"
+                                        }
+                                    },
+                                    "runAfter": {},
+                                    "type": "Foreach"
+                                }
+                            },
+                            "runAfter": {
+                                "Declare_new_comments_array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Scope"
+                        },
+                        "Post_new_comments_to_facebook": {
+                            "actions": {
+                                "Iterate_new_comments": {
+                                    "foreach": "@variables('new-comments')",
+                                    "actions": {
+                                        "Post_to_facebook": {
+                                            "runAfter": {},
+                                            "type": "Http",
+                                            "inputs": {
+                                                "body": {
+                                                    "access_token": "@{parameters('$facebook_page_access_token')}",
+                                                    "message": "@{items('Iterate_new_comments')}"
+                                                },
+                                                "method": "POST",
+                                                "uri":  "@{concat('https://graph.facebook.com/', parameters('$facebook_page_id'), '/feed')}"
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {},
+                                    "type": "Foreach"
+                                }
+                            },
+                            "runAfter": {
+                                "Populate_new_comments_array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Scope"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$event_id": {
+                        "value": "[parameters('event_id')]"
+                    },
+                    "$facebook_page_id": {
+                        "value": "[parameters('facebook_page_id')]"
+                    },
+                    "$facebook_page_access_token": {
+                        "value": "[parameters('facebook_page_access_token')]"
+                    }
+				}
+            }
+        }
+    ]
+}
